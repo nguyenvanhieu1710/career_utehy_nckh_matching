@@ -4,9 +4,9 @@ import os
 import shutil
 from typing import Optional
 from fastapi import UploadFile
-from app.cv_parser import parse_cv
+from app.utils.cv_parser import parse_cv
 from app.schemas.cv import CVJsonInput, CVParsedData
-from app.config import settings
+from app.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ class CVService:
     def _extract_skills_from_text(text: str) -> list:
         """Extract skills from CV text using existing skill extractor"""
         try:
-            from app.skill_extractor import extract_skills
+            from app.utils.skill_extractor import extract_skills
             return extract_skills(text)
         except:
             return []

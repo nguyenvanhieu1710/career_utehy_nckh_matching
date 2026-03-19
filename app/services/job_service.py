@@ -3,18 +3,45 @@
 from typing import List, Optional
 from app.core.database import get_database
 from app.schemas.job import JobSchema
+from app.core.redis_config import CacheService
 import logging
 
 logger = logging.getLogger(__name__)
 
 class JobService:
-    """Service for fetching jobs from MongoDB"""
+    """Service for fetching jobs from MongoDB with Redis caching"""
     
     @staticmethod
     async def fetch_all_jobs() -> List[JobSchema]:
         """
-        Fetch all OPEN jobs from MongoDB companies collection
+        Fetch all OPEN jobs from MongoDB with Redis caching
         Returns list of JobSchema objects
+        """
+        try:
+            # Try to get from cache first
+            cached_jobs = await CacheService.get_jobs_cache()
+            if cached_jobs:
+                # Convert cached data back to JobSchema objects
+                return [JobSchema(**job_data) for job_data in cached_jobs]
+            
+            # Cache miss - fetch from MongoDB
+            logger.info("Cache miss - fetching jobs from MongoDB")
+            jobs = await JobService._fetch_jobs_from_db()
+            
+            # Cache the results
+            if jobs:
+                await CacheService.set_jobs_cache(jobs)
+            
+            return jobs
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch jobs: {str(e)}")
+            return []
+    
+    @staticmethod
+    async def _fetch_jobs_from_db() -> List[JobSchema]:
+        """
+        Fetch jobs directly from MongoDB (internal method)
         """
         try:
             db = get_database()
@@ -56,7 +83,8 @@ class JobService:
                         location=job.get("location", ""),
                         requirements=requirements,
                         salary=job.get("salary", ""),
-                        status=job.get("status", "")
+                        status=job.get("status", ""),
+                        embedding=job.get("embedding")  # Include pre-computed embedding
                     )
                     
                     job_list.append(job_schema)

@@ -1,8 +1,8 @@
-# app/logger.py
+# app/core/logging.py
 
 import logging
 import os
-from app.config import CV_TEXT_LOG_DIR
+from app.core.config import CV_TEXT_LOG_DIR
 
 # Configure logging
 logging.basicConfig(

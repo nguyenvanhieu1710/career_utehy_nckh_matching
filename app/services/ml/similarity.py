@@ -1,10 +1,14 @@
-# app/fit_analyzer.py
+# app/services/ml/similarity.py
 
-from app.skill_extractor import extract_skills
-from app.embedding import embed_text
+from app.utils.skill_extractor import extract_skills
+from app.services.ml.embeddings import embed_text
 from sklearn.metrics.pairwise import cosine_similarity
 
 def analyze_fit(cv_text: str, jd_text: str):
+    """
+    Analyze fit between CV and job description
+    Returns similarity score and skill analysis
+    """
     cv_embedding = embed_text(cv_text)
     jd_embedding = embed_text(jd_text)
 

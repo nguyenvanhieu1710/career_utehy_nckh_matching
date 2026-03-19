@@ -14,6 +14,7 @@ class JobSchema(BaseModel):
     requirements: List[str] = Field(default_factory=list, description="Job requirements")
     salary: Optional[str] = Field(None, description="Salary range")
     status: Optional[str] = Field(None, description="Job status")
+    embedding: Optional[List[float]] = Field(None, description="Pre-computed embedding vector")
     
     class Config:
         json_schema_extra = {
@@ -26,6 +27,7 @@ class JobSchema(BaseModel):
                 "location": "Hanoi, Vietnam",
                 "requirements": ["3+ years experience", "Strong Python skills"],
                 "salary": "$1000-$2000",
-                "status": "OPEN"
+                "status": "OPEN",
+                "embedding": None
             }
         }

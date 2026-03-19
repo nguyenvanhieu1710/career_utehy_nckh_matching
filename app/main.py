@@ -4,8 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.v1.router import api_router
-from app.config import settings
+from app.core.config import settings
 from app.core.database import connect_to_mongo, close_mongo_connection
+from app.core.redis_config import redis_manager
 import logging
 
 # Setup logging
@@ -28,9 +29,19 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to connect to database: {str(e)}")
         # Continue without database for now
     
+    # Connect to Redis
+    try:
+        await redis_manager.get_client()
+        if redis_manager.is_connected():
+            logger.info("Redis connection established")
+        else:
+            logger.warning("Redis connection failed - caching disabled")
+    except Exception as e:
+        logger.warning(f"Redis connection failed: {str(e)} - caching disabled")
+    
     # Load embedding model
     try:
-        from app.embedding import get_model
+        from app.services.ml.embeddings import get_model
         model = get_model()
         logger.info("Embedding model loaded successfully")
     except Exception as e:
@@ -43,6 +54,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Shutting down...")
     await close_mongo_connection()
+    await redis_manager.close()
 
 # Create FastAPI app
 app = FastAPI(

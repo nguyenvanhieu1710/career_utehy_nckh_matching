@@ -6,7 +6,9 @@ from app.schemas.cv import CVParsedData
 from app.schemas.job import JobSchema
 from app.schemas.match import MatchResult, MatchResponse, MatchRequest
 from app.services.job_service import JobService
-from app.fit_analyzer import analyze_fit
+from app.services.ml.similarity import analyze_fit
+from app.services.ml.embeddings import embed_text
+from app.utils.skill_extractor import extract_skills
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,9 +47,34 @@ class MatchingService:
             
             for job in filtered_jobs:
                 try:
-                    # Use existing fit analyzer
-                    fit_analysis = analyze_fit(cv_data.raw_text, 
-                                             MatchingService._job_to_text(job))
+                    # Use pre-computed embedding if available, otherwise compute on-the-fly
+                    job_embedding = job.embedding if hasattr(job, 'embedding') and job.embedding else None
+                    
+                    if job_embedding:
+                        # Fast path: use pre-computed embedding
+                        from sklearn.metrics.pairwise import cosine_similarity
+                        import numpy as np
+                        
+                        cv_embedding = embed_text(cv_data.raw_text)
+                        similarity_score = cosine_similarity(
+                            [cv_embedding], 
+                            [np.array(job_embedding)]
+                        )[0][0]
+                        
+                        # Extract skills for analysis
+                        cv_skills = extract_skills(cv_data.raw_text)
+                        jd_skills = extract_skills(MatchingService._job_to_text(job))
+                        missing_skills = list(set(jd_skills) - set(cv_skills))
+                        
+                        fit_analysis = {
+                            "fit_score": float(similarity_score),
+                            "cv_skills": cv_skills,
+                            "missing_skills": missing_skills
+                        }
+                    else:
+                        # Slow path: compute embedding on-the-fly
+                        fit_analysis = analyze_fit(cv_data.raw_text, 
+                                                 MatchingService._job_to_text(job))
                     
                     # Skip if score is below threshold
                     if fit_analysis["fit_score"] < match_params.min_score:
@@ -80,7 +107,7 @@ class MatchingService:
                     continue
             
             # Sort by score and limit results
-            matches.sort(key=lambda x: x.score, reverse=True)
+            matches.sort(key=lambda x: x.compatibility_score, reverse=True)
             top_matches = matches[:match_params.top_k]
             
             # Calculate processing time

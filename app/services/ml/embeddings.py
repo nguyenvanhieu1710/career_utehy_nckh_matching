@@ -1,12 +1,13 @@
-# app/embedding.py
+# app/services/ml/embeddings.py
 
 import os
 from sentence_transformers import SentenceTransformer
-from app.config import settings
+from app.core.config import settings
 
 _model = None
 
 def get_model():
+    """Get or initialize the sentence transformer model"""
     global _model
     if _model is None:
         # Use HF_TOKEN if available for authenticated requests
@@ -17,5 +18,6 @@ def get_model():
 
 
 def embed_text(text: str):
+    """Generate embedding vector for text"""
     model = get_model()
     return model.encode(text)

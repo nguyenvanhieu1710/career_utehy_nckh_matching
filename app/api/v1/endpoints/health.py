@@ -3,6 +3,7 @@
 from fastapi import APIRouter, HTTPException
 from app.core.database import get_database
 from app.services.job_service import JobService
+from app.core.redis_config import redis_health_check
 import logging
 
 logger = logging.getLogger(__name__)
@@ -12,18 +13,7 @@ router = APIRouter()
 @router.get("/")
 async def health_check():
     """
-    Basic health check endpoint
-    """
-    return {
-        "status": "healthy",
-        "service": "Career UTEHY NCKH - CV Job Matching Service",
-        "version": "1.0.0"
-    }
-
-@router.get("/detailed")
-async def detailed_health_check():
-    """
-    Detailed health check including database connectivity
+    Comprehensive health check with database connectivity and system status
     """
     health_status = {
         "status": "healthy",
@@ -55,9 +45,27 @@ async def detailed_health_check():
         }
         health_status["status"] = "unhealthy"
     
+    # Check Redis connectivity
+    try:
+        redis_healthy = await redis_health_check()
+        health_status["checks"]["redis"] = {
+            "status": "healthy" if redis_healthy else "unhealthy",
+            "caching_enabled": redis_healthy
+        }
+        # Don't mark service as unhealthy if only Redis fails
+        if not redis_healthy:
+            logger.warning("Redis unavailable - caching disabled but service functional")
+    except Exception as e:
+        health_status["checks"]["redis"] = {
+            "status": "unhealthy", 
+            "error": str(e),
+            "caching_enabled": False
+        }
+        logger.warning(f"Redis health check failed: {e}")
+    
     # Check embedding model
     try:
-        from app.embedding import get_model
+        from app.services.ml.embeddings import get_model
         model = get_model()
         if model is not None:
             health_status["checks"]["embedding_model"] = {

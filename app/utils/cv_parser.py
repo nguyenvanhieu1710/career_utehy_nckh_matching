@@ -4,8 +4,8 @@ import os
 import uuid
 from datetime import datetime
 from pypdf import PdfReader
-from app.config import settings
-from app.logger import logger
+from app.core.config import settings
+from app.core.logging import logger
 
 def extract_with_pypdf(file_path: str) -> str:
     """Extract text using PyPDF (existing method)"""

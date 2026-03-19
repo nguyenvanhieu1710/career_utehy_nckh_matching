@@ -11,8 +11,8 @@ This service provides intelligent CV-to-job matching capabilities for the Career
 1️⃣ Clone the repository
 
 ```bash
-git clone https://github.com/nguyenvanhieu1710/career-utehy-nckh-matching.git
-cd career-utehy-nckh-matching
+git clone https://github.com/nguyenvanhieu1710/career_utehy_nckh_matching.git
+cd career_utehy_nckh_matching
 ```
 
 2️⃣ Create virtual environment
@@ -58,7 +58,6 @@ Access the API documentation and test endpoints:
 ### Health Check
 
 - `GET /api/v1/health/` - Basic health check
-- `GET /api/v1/health/detailed` - Detailed health with database status
 
 ## 🎯 Features
 
