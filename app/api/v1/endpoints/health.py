@@ -15,6 +15,10 @@ async def health_check():
     """
     Comprehensive health check with database connectivity and system status
     """
+    from app.core.database import mongodb, postgresdb, get_milvus_client
+    from app.core.config import settings
+    import sqlalchemy as sa
+    
     health_status = {
         "status": "healthy",
         "service": "Career UTEHY NCKH - CV Job Matching Service",
@@ -22,70 +26,80 @@ async def health_check():
         "checks": {}
     }
     
-    # Check database connectivity
+    # 1. Check MongoDB
     try:
-        db = get_database()
-        if db is not None:
-            # Try to get jobs count
-            jobs_count = await JobService.get_jobs_count()
-            health_status["checks"]["database"] = {
+        if mongodb.client:
+            await mongodb.client.admin.command('ping')
+            health_status["checks"]["mongodb"] = {
                 "status": "healthy",
-                "jobs_available": jobs_count
+                "database": settings.MONGODB_DB_NAME
             }
         else:
-            health_status["checks"]["database"] = {
-                "status": "unhealthy",
-                "error": "Database connection not available"
-            }
+            health_status["checks"]["mongodb"] = {"status": "unhealthy", "error": "Not connected"}
             health_status["status"] = "unhealthy"
     except Exception as e:
-        health_status["checks"]["database"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
+        health_status["checks"]["mongodb"] = {"status": "unhealthy", "error": str(e)}
+        health_status["status"] = "unhealthy"
+
+    # 2. Check PostgreSQL
+    try:
+        if postgresdb.session_factory:
+            async with postgresdb.session_factory() as session:
+                await session.execute(sa.text("SELECT 1"))
+            health_status["checks"]["postgresql"] = {
+                "status": "healthy",
+                "database": settings.POSTGRES_DB
+            }
+        else:
+            health_status["checks"]["postgresql"] = {"status": "unhealthy", "error": "Not connected"}
+            health_status["status"] = "unhealthy"
+    except Exception as e:
+        health_status["checks"]["postgresql"] = {"status": "unhealthy", "error": str(e)}
+        health_status["status"] = "unhealthy"
+
+    # 3. Check Milvus (Zilliz Cloud)
+    try:
+        client = get_milvus_client()
+        if client:
+            # Check connection status
+            health_status["checks"]["milvus"] = {
+                "status": "healthy",
+                "endpoint": settings.MILVUS_URL
+            }
+        else:
+            health_status["checks"]["milvus"] = {"status": "unhealthy", "error": "Client not initialized"}
+            health_status["status"] = "unhealthy"
+    except Exception as e:
+        health_status["checks"]["milvus"] = {"status": "unhealthy", "error": str(e)}
         health_status["status"] = "unhealthy"
     
-    # Check Redis connectivity
+    # 4. Check Redis
     try:
         redis_healthy = await redis_health_check()
         health_status["checks"]["redis"] = {
             "status": "healthy" if redis_healthy else "unhealthy",
             "caching_enabled": redis_healthy
         }
-        # Don't mark service as unhealthy if only Redis fails
-        if not redis_healthy:
-            logger.warning("Redis unavailable - caching disabled but service functional")
     except Exception as e:
-        health_status["checks"]["redis"] = {
-            "status": "unhealthy", 
-            "error": str(e),
-            "caching_enabled": False
-        }
-        logger.warning(f"Redis health check failed: {e}")
+        health_status["checks"]["redis"] = {"status": "unhealthy", "error": str(e)}
     
-    # Check embedding model
+    # 5. Check AI Embedding Model
     try:
         from app.services.ml.embeddings import get_model
         model = get_model()
         if model is not None:
             health_status["checks"]["embedding_model"] = {
                 "status": "healthy",
-                "model_name": "sentence-transformers/all-MiniLM-L6-v2"
+                "model_name": settings.EMBEDDING_MODEL_NAME
             }
         else:
-            health_status["checks"]["embedding_model"] = {
-                "status": "unhealthy",
-                "error": "Embedding model not loaded"
-            }
+            health_status["checks"]["embedding_model"] = {"status": "unhealthy", "error": "Model not loaded"}
             health_status["status"] = "unhealthy"
     except Exception as e:
-        health_status["checks"]["embedding_model"] = {
-            "status": "unhealthy",
-            "error": str(e)
-        }
+        health_status["checks"]["embedding_model"] = {"status": "unhealthy", "error": str(e)}
         health_status["status"] = "unhealthy"
     
     if health_status["status"] == "unhealthy":
         raise HTTPException(status_code=503, detail=health_status)
     
-    return health_status
+    return health_status

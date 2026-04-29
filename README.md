@@ -37,8 +37,7 @@ cp .env.example .env
 ## ▶️ Run the Application
 
 ```bash
-python -m app.main
-# Or: uvicorn app.main:app --reload
+python run.py
 ```
 
 ## 📖 Usage

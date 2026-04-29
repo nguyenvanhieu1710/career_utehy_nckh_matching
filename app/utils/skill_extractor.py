@@ -1,58 +1,68 @@
-# app/skill_extractor.py
+import re
+from typing import List, Set
 
-SKILLS = [
-    # Programming Languages
-    "python", "java", "javascript", "typescript", "c++", "c#", "php", "ruby", "go", "rust", "swift",
-    "html", "css", "sql", "r", "matlab",
-    
-    # Frameworks & Libraries
-    "react", "vue", "angular", "nodejs", "express", "django", "flask", "fastapi", "spring", "laravel",
-    "tensorflow", "pytorch", "keras", "scikit-learn", "pandas", "numpy", "matplotlib", "seaborn",
-    
-    # Databases
-    "mysql", "postgresql", "mongodb", "redis", "sqlite", "oracle", "elasticsearch",
-    
-    # Cloud & DevOps
-    "aws", "azure", "gcp", "docker", "kubernetes", "jenkins", "gitlab", "terraform", "ansible",
-    "ci/cd", "microservices", "serverless",
-    
-    # Tools & Technologies
-    "git", "github", "bitbucket", "jira", "confluence", "slack", "api", "rest", "graphql", "webhook",
-    "linux", "ubuntu", "windows", "macos", "bash", "powershell", "shell",
-    
-    # AI/ML/Data Science
-    "machine learning", "deep learning", "nlp", "computer vision", "data science", "analytics",
-    "artificial intelligence", "neural network", "algorithm", "data mining", "statistics",
-    
-    # Frontend/UI
-    "html5", "css3", "sass", "less", "tailwind", "bootstrap", "jquery", "webpack", "vite",
-    "responsive design", "ui/ux", "figma", "sketch", "adobe xd",
-    
-    # Backend/Architecture
-    "microservices", "rest api", "graphql", "websockets", "oauth", "jwt", "authentication",
-    "authorization", "security", "encryption", "caching", "load balancing",
-    
-    # Testing
-    "jest", "cypress", "selenium", "unit testing", "integration testing", "e2e testing", "tdd", "bdd",
-    
-    # Project Management
-    "agile", "scrum", "kanban", "waterfall", "product management", "stakeholder management",
-    "roadmap", "user research", "a/b testing", "analytics", "metrics", "kpi",
-    
-    # General Skills
-    "leadership", "communication", "teamwork", "problem solving", "critical thinking", "creativity",
-    "innovation", "strategy", "planning", "organization", "time management", "project management"
-]
+# Basic stop words (Vietnamese & English) to filter out non-important words
+STOP_WORDS = {
+    "và", "của", "là", "các", "cho", "trong", "để", "với", "tại", "như", "này", "được", "những", "một",
+    "the", "and", "of", "to", "in", "for", "with", "on", "at", "by", "from", "up", "about", "into", "over", "after",
+    "có", "khi", "ra", "vào", "lại", "thì", "mà", "nên", "hơn", "còn", "nhiều", "ít", "đã", "đang", "sẽ",
+    "must", "have", "been", "was", "were", "is", "are", "do", "does", "did", "can", "could", "should", "would",
+    "kinh", "nghiệm", "kỹ", "năng", "yêu", "cầu", "công", "việc", "trách", "nhiệm", "quyền", "lợi",
+    "experience", "skill", "skills", "job", "work", "required", "requirements", "knowledge", "ability"
+}
 
-def extract_skills(text: str):
+def clean_text(text: str) -> str:
+    """Basic text cleaning for keyphrase extraction"""
     text = text.lower()
-    found_skills = []
+    # Remove special characters but keep some punctuation for splitting
+    text = re.sub(r'[^a-z0-9àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ\s\-/]', ' ', text)
+    return text
+
+def extract_skills(text: str) -> List[str]:
+    """
+    Domain-agnostic keyphrase extraction.
+    Identifies potential skills/concepts without a hardcoded dictionary.
+    """
+    cleaned_text = clean_text(text)
+    words = cleaned_text.split()
     
-    for skill in SKILLS:
-        # Check for whole word matches to avoid partial matches
-        import re
-        pattern = r'\b' + re.escape(skill) + r'\b'
-        if re.search(pattern, text):
-            found_skills.append(skill)
+    # Identify potential technical/specialized terms
+    # Strategy: Look for capitalized words (original text) or technical symbols
+    # Since we lowercased, let's use an N-gram approach with frequency
     
-    return found_skills
+    candidates = []
+    # Simple strategy: collect sequences of 1-3 words that don't start/end with stop words
+    for i in range(len(words)):
+        for n in range(1, 4): # 1 to 3-grams
+            if i + n <= len(words):
+                ngram = words[i:i+n]
+                # Filter out ngrams starting or ending with stop words
+                if ngram[0] not in STOP_WORDS and ngram[-1] not in STOP_WORDS:
+                    # Filter out short or numeric-only terms
+                    phrase = " ".join(ngram)
+                    if len(phrase) > 2 and not phrase.isdigit():
+                        candidates.append(phrase)
+    
+    # Score candidates by frequency (basic implementation)
+    counts = {}
+    for c in candidates:
+        counts[c] = counts.get(c, 0) + 1
+    
+    # Sort by frequency and return top unique keyphrases
+    sorted_keyphrases = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Return top keyphrases (limited to avoid noise)
+    return [kp[0] for kp in sorted_keyphrases if kp[1] >= 1][:20]
+
+def match_skills_semantically(cv_skills: List[str], job_skills: List[str]) -> tuple[List[str], List[str]]:
+    """
+    Optional: Use semantic similarity to match skills instead of exact strings.
+    For now, we'll use a basic intersection but can be expanded with embeddings.
+    """
+    cv_set = set(cv_skills)
+    job_set = set(job_skills)
+    
+    matched = list(cv_set.intersection(job_set))
+    missing = list(job_set.difference(cv_set))
+    
+    return matched, missing

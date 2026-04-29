@@ -71,6 +71,3 @@ class MatchResponse(BaseModel):
 class MatchRequest(BaseModel):
     """Request parameters for matching"""
     top_k: int = Field(default=5, description="Number of top matches to return", ge=1, le=50)
-    min_score: Optional[float] = Field(default=0.0, description="Minimum match score threshold", ge=0, le=1)
-    filter_location: Optional[str] = Field(None, description="Filter by location")
-    filter_skills: Optional[List[str]] = Field(None, description="Filter by required skills")

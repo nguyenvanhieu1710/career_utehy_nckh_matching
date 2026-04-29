@@ -11,10 +11,16 @@ class JobSchema(BaseModel):
     description: Optional[str] = Field(None, description="Job description")
     skills: List[str] = Field(default_factory=list, description="Required skills")
     location: Optional[str] = Field(None, description="Job location")
+    location_city: Optional[str] = Field(None, description="City for location matching")
     requirements: List[str] = Field(default_factory=list, description="Job requirements")
+    exp_min: float = Field(0.0, description="Minimum years of experience")
+    exp_max: float = Field(999.0, description="Maximum years of experience")
     salary: Optional[str] = Field(None, description="Salary range")
     status: Optional[str] = Field(None, description="Job status")
-    embedding: Optional[List[float]] = Field(None, description="Pre-computed embedding vector")
+    embedding: Optional[List[float]] = Field(None, description="Legacy embedding")
+    title_vec: Optional[List[float]] = Field(None, description="Title embedding")
+    tech_vec: Optional[List[float]] = Field(None, description="Tech stack embedding")
+    mota_vec: Optional[List[float]] = Field(None, description="Description embedding")
     
     class Config:
         json_schema_extra = {

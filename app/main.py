@@ -1,4 +1,15 @@
-# app/main.py
+import os
+import warnings
+import logging
+
+# Suppress warnings from third-party libraries
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", module="pypdf")
+
+# Set logging levels for noisy libraries
+logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
+logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +40,21 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to connect to database: {str(e)}")
         # Continue without database for now
     
+    # Connect to PostgreSQL
+    try:
+        from app.core.database import connect_to_postgres
+        await connect_to_postgres()
+        logger.info("PostgreSQL connection established")
+    except Exception as e:
+        logger.error(f"Failed to connect to PostgreSQL: {str(e)}")
+
+    # Connect to Milvus
+    try:
+        from app.core.database import connect_to_milvus
+        connect_to_milvus()
+    except Exception as e:
+        logger.error(f"Failed to connect to Milvus: {str(e)}")
+    
     # Connect to Redis
     try:
         await redis_manager.get_client()
@@ -48,6 +74,10 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to load embedding model: {str(e)}")
     
     logger.info("Startup complete")
+    
+    # Log Swagger UI URL
+    base_url = "http://127.0.0.1" if settings.APP_HOST == "0.0.0.0" else f"http://{settings.APP_HOST}"
+    logger.info(f"Swagger UI is available at: {base_url}:{settings.APP_PORT}/docs")
     
     yield
     
@@ -89,22 +119,11 @@ async def root():
         "health": "/api/v1/health"
     }
 
-# Legacy endpoint for backward compatibility
-@app.post("/match")
-async def legacy_match_endpoint():
-    return {
-        "message": "This endpoint is deprecated. Please use /api/v1/match/cv-file or /api/v1/match/cv-json",
-        "new_endpoints": {
-            "cv_file": "/api/v1/match/cv-file",
-            "cv_json": "/api/v1/match/cv-json"
-        }
-    }
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "app.main:app",
-        host=settings.API_HOST,
-        port=settings.API_PORT,
-        reload=settings.API_DEBUG
+        host=settings.APP_HOST,
+        port=settings.APP_PORT,
+        reload=settings.APP_RELOAD
     )

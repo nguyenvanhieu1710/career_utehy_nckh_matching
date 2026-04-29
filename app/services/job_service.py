@@ -1,8 +1,12 @@
 # app/services/job_service.py
 
+from app.core.config import settings
 from typing import List, Optional
-from app.core.database import get_database
+from app.core.database import get_database, get_postgres_session
 from app.schemas.job import JobSchema
+from app.models.job import JobModel, CompanyModel
+from sqlalchemy.future import select
+from sqlalchemy.orm import joinedload
 from app.core.redis_config import CacheService
 import logging
 
@@ -24,28 +28,31 @@ class JobService:
                 # Convert cached data back to JobSchema objects
                 return [JobSchema(**job_data) for job_data in cached_jobs]
             
-            # Cache miss - fetch from MongoDB
-            logger.info("Cache miss - fetching jobs from MongoDB")
-            jobs = await JobService._fetch_jobs_from_db()
+            # Cache miss - fetch from both DBs
+            logger.info("Cache miss - fetching jobs from MongoDB & PostgreSQL")
+            mongo_jobs = await JobService._fetch_jobs_from_mongo()
+            pg_jobs = await JobService._fetch_jobs_from_postgres()
+            
+            all_jobs = mongo_jobs + pg_jobs
             
             # Cache the results
-            if jobs:
-                await CacheService.set_jobs_cache(jobs)
+            if all_jobs:
+                await CacheService.set_jobs_cache(all_jobs)
             
-            return jobs
+            return all_jobs
             
         except Exception as e:
             logger.error(f"Failed to fetch jobs: {str(e)}")
             return []
     
     @staticmethod
-    async def _fetch_jobs_from_db() -> List[JobSchema]:
+    async def _fetch_jobs_from_mongo() -> List[JobSchema]:
         """
-        Fetch jobs directly from MongoDB (internal method)
+        Fetch jobs from MongoDB (internal method)
         """
         try:
             db = get_database()
-            companies_collection = db["companies"]
+            companies_collection = db[settings.MONGODB_COLLECTION_COMPANIES]
             
             # Get all companies with jobs
             companies = await companies_collection.find({}).to_list(length=None)
@@ -55,6 +62,16 @@ class JobService:
             for company in companies:
                 company_name = company.get("name", "Unknown Company")
                 jobs = company.get("jobs", [])
+                
+                # 4. Apply Heuristic Scoring
+                # Use weights from configuration
+                weights = {
+                    "title": settings.WEIGHT_TITLE,
+                    "tech": settings.WEIGHT_TECH,
+                    "mota": settings.WEIGHT_MOTA,
+                    "loc": settings.WEIGHT_LOCATION,
+                    "exp": settings.WEIGHT_EXPERIENCE
+                }
                 
                 for job in jobs:
                     # Only include OPEN jobs
@@ -94,6 +111,41 @@ class JobService:
             
         except Exception as e:
             logger.error(f"Failed to fetch jobs from MongoDB: {str(e)}")
+            return []
+
+    @staticmethod
+    async def _fetch_jobs_from_postgres() -> List[JobSchema]:
+        """
+        Fetch jobs from PostgreSQL (internal method)
+        """
+        try:
+            session_factory = await get_postgres_session()
+            async with session_factory as session:
+                query = select(JobModel).options(joinedload(JobModel.company))
+                result = await session.execute(query)
+                jobs = result.scalars().all()
+                
+                job_list = []
+                for job in jobs:
+                    job_list.append(JobSchema(
+                        id=str(job.id),
+                        title=job.title,
+                        company=job.company.name if job.company else "Unknown Company",
+                        description=job.description,
+                        skills=job.skills or [],
+                        location=job.location,
+                        location_city=job.location, # Fallback to location
+                        requirements=[job.requirements] if job.requirements else [],
+                        exp_min=float(job.years_of_experience or 0),
+                        exp_max=float(job.years_of_experience or 99),
+                        salary=job.salary_display,
+                        status=job.status or "approved"
+                    ))
+                
+                logger.info(f"Fetched {len(job_list)} OPEN jobs from PostgreSQL")
+                return job_list
+        except Exception as e:
+            logger.error(f"Failed to fetch jobs from PostgreSQL: {str(e)}")
             return []
     
     @staticmethod

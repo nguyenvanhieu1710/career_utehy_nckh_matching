@@ -17,7 +17,13 @@ def get_model():
     return _model
 
 
-def embed_text(text: str):
-    """Generate embedding vector for text"""
+def embed_text(text: str | list[str]):
+    """Generate normalized embedding vector(s) for text or list of texts"""
     model = get_model()
-    return model.encode(text)
+    # Truncate long text to improve speed and stay within model limits (max 512-1024 tokens)
+    if isinstance(text, str):
+        text = text[:1500] # Limit to ~300-400 words for speed
+    elif isinstance(text, list):
+        text = [t[:1500] for t in text]
+        
+    return model.encode(text, normalize_embeddings=True)
