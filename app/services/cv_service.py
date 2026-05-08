@@ -65,19 +65,19 @@ class CVService:
                 text_parts.append(f"Summary: {cv_data.summary}")
             
             if cv_data.experience:
-                text_parts.append(f"Experience: {cv_data.experience}")
+                text_parts.append(f"EXPERIENCE\n{cv_data.experience}")
             
             if cv_data.education:
-                text_parts.append(f"Education: {cv_data.education}")
+                text_parts.append(f"EDUCATION\n{cv_data.education}")
             
             if cv_data.skills:
-                text_parts.append(f"Skills: {', '.join(cv_data.skills)}")
+                text_parts.append(f"SKILLS\n{', '.join(cv_data.skills)}")
             
             if cv_data.certifications:
-                text_parts.append(f"Certifications: {', '.join(cv_data.certifications)}")
+                text_parts.append(f"CERTIFICATIONS\n{', '.join(cv_data.certifications)}")
             
             if cv_data.languages:
-                text_parts.append(f"Languages: {', '.join(cv_data.languages)}")
+                text_parts.append(f"LANGUAGES\n{', '.join(cv_data.languages)}")
             
             raw_text = "\n".join(text_parts)
             

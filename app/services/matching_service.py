@@ -119,8 +119,12 @@ class MatchingService:
                 matched_skills = list(cv_skills.intersection(job_skills))
                 missing_skills = list(job_skills.difference(cv_skills))
                 
+                # Use reliable exp_min from PostgreSQL if available
+                full_job = job_lookup.get(str(jid))
+                job_exp_min = full_job.exp_min if full_job else c["exp_min"]
+                
                 loc_score = MatchingService._get_location_score(user_city, c["location_city"])
-                exp_score = MatchingService._experience_match_score(user_exp, c["exp_min"])
+                exp_score = MatchingService._experience_match_score(user_exp, job_exp_min)
                 
                 final_score = (
                     weights["title"] * c["sim_title"] +
@@ -136,9 +140,10 @@ class MatchingService:
                 # Generate suggestions if skills are missing
                 suggestions = MatchingService._generate_skill_suggestions(missing_skills, c["job_title"])
                 
-                # Retrieve salary from job_lookup
+                # Retrieve salary and url_source from job_lookup
                 full_job = job_lookup.get(str(jid))
                 job_salary = full_job.salary if full_job else None
+                job_url = full_job.url_source if full_job else None
 
                 match_results.append(MatchResult(
                     job_id=str(jid),
@@ -150,7 +155,15 @@ class MatchingService:
                     skill_improvement_suggestions=suggestions,
                     location=c["location_city"],
                     match_explanation=f"Match score based on: Title ({c['sim_title']:.2f}), Tech ({c['sim_tech']:.2f}), Location ({loc_score:.2f})",
-                    salary=job_salary
+                    salary=job_salary,
+                    url_source=job_url,
+                    scores={
+                        "sim_title": round(c["sim_title"] * 100),
+                        "sim_tech": round(c["sim_tech"] * 100),
+                        "sim_mota": round(c["sim_mota"] * 100),
+                        "loc_score": round(loc_score * 100),
+                        "exp_score": round(exp_score * 100)
+                    }
                 ))
 
             # Sort and Limit

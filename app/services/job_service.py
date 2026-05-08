@@ -101,6 +101,7 @@ class JobService:
                         requirements=requirements,
                         salary=job.get("salary", ""),
                         status=job.get("status", ""),
+                        url_source=job.get("url_source", ""),
                         embedding=job.get("embedding")  # Include pre-computed embedding
                     )
                     
@@ -139,7 +140,8 @@ class JobService:
                         exp_min=float(job.years_of_experience or 0),
                         exp_max=float(job.years_of_experience or 99),
                         salary=job.salary_display,
-                        status=job.status or "approved"
+                        status=job.status,
+                        url_source=job.url_source
                     ))
                 
                 logger.info(f"Fetched {len(job_list)} OPEN jobs from PostgreSQL")

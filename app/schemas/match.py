@@ -15,6 +15,8 @@ class MatchResult(BaseModel):
     match_explanation: str = Field(..., description="Why this job matches and recommendations")
     location: Optional[str] = Field(None, description="Job location")
     salary: Optional[str] = Field(None, description="Salary range")
+    url_source: Optional[str] = Field(None, description="Link to original job post")
+    scores: dict = Field(default_factory=dict, description="Detailed sub-scores for the match")
     
     class Config:
         json_schema_extra = {
