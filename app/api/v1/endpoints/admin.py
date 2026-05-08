@@ -32,6 +32,26 @@ async def precompute_embeddings():
         logger.error(f"Failed to pre-compute embeddings: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/sync-jobs")
+async def sync_specific_jobs(data: dict):
+    """
+    Sync only specific job IDs to Milvus.
+    Input: {"job_ids": ["id1", "id2", ...]}
+    """
+    job_ids = data.get("job_ids", [])
+    if not job_ids:
+        raise HTTPException(status_code=400, detail="job_ids is required")
+        
+    try:
+        result = await EmbeddingService.sync_specific_jobs(job_ids)
+        if result["success"]:
+            return result
+        else:
+            raise HTTPException(status_code=500, detail=result.get("error"))
+    except Exception as e:
+        logger.error(f"Failed to sync specific jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/embeddings-status")
 async def get_embeddings_status():
     """

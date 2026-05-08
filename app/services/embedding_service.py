@@ -121,6 +121,73 @@ class EmbeddingService:
         except Exception as e:
             logger.error(f"Failed to pre-compute embeddings: {e}")
             return {"success": False, "error": str(e)}
+
+    @staticmethod
+    async def sync_specific_jobs(job_ids: List[str]):
+        """
+        Incremental sync: Only compute embeddings for the provided job IDs.
+        Very efficient for proactive notifications.
+        """
+        if not job_ids:
+            return {"success": True, "updated_jobs": 0}
+            
+        try:
+            from app.core.config import settings
+            from app.services.job_service import JobService
+            from app.core.database import get_milvus_client
+            
+            # 1. Fetch only the specific jobs
+            jobs_to_sync = await JobService.fetch_jobs_by_ids(job_ids)
+            
+            if not jobs_to_sync:
+                return {"success": True, "updated_jobs": 0, "message": "No matching jobs found in DB"}
+
+            # 2. Initialize and ensure collection
+            milvus_client = get_milvus_client()
+            EmbeddingService._ensure_collection_exists(milvus_client)
+            
+            # 3. Process only these specific jobs
+            updated_jobs = 0
+            logger.info(f"🚀 Incremental sync starting for {len(jobs_to_sync)} jobs...")
+            
+            for job in jobs_to_sync:
+                try:
+                    title_text = job.title or ""
+                    tech_text = ", ".join(job.skills) if isinstance(job.skills, list) else str(job.skills or "")
+                    mota_text = f"{job.description}\n{', '.join(job.requirements)}" if hasattr(job, 'requirements') else str(job.description or "")
+
+                    # Compute vectors
+                    title_vector = embed_text(title_text).tolist()
+                    tech_vector = embed_text(tech_text).tolist()
+                    mota_vector = embed_text(mota_text).tolist()
+                    
+                    # Upsert
+                    milvus_client.upsert(
+                        collection_name=settings.MILVUS_COLLECTION,
+                        data=[{
+                            "job_id": str(job.id),
+                            "job_title": job.title,
+                            "company_name": job.company,
+                            "location_city": job.location,
+                            "skills": tech_text,
+                            "title_vec": title_vector,
+                            "tech_vec": tech_vector,
+                            "mota_vec": mota_vector,
+                            "exp_min": job.exp_min
+                        }]
+                    )
+                    updated_jobs += 1
+                except Exception as je:
+                    logger.error(f"Error processing job {job.id}: {je}")
+
+            return {
+                "success": True,
+                "updated_jobs": updated_jobs,
+                "message": f"Successfully synced {updated_jobs} new jobs to Milvus"
+            }
+        except Exception as e:
+            logger.error(f"Failed incremental sync: {e}")
+            return {"success": False, "error": str(e)}
     
     @staticmethod
     def _generate_job_text(job: dict, company_name: str) -> str:

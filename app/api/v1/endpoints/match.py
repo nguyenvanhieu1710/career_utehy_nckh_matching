@@ -1,6 +1,7 @@
 # app/api/v1/endpoints/match.py
 
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from typing import Any, List, Optional
 from fastapi.responses import JSONResponse
 from app.schemas.cv import CVJsonInput
 from app.schemas.match import MatchResponse, MatchRequest
@@ -52,20 +53,22 @@ async def match_cv_file(
 @router.post("/cv-json", response_model=MatchResponse)
 async def match_cv_json(
     cv_data: CVJsonInput,
-    top_k: int = Query(default=5, ge=1, le=50, description="Number of top matches to return")
+    top_k: int = Query(default=5, ge=1, le=50, description="Number of top matches to return"),
+    job_ids: Optional[List[str]] = Query(None, description="Specific job IDs to match against")
 ):
     """
     Match CV data (JSON format) to jobs
     
     - **cv_data**: CV information in JSON format
     - **top_k**: Number of top matches to return (1-50)
+    - **job_ids**: Optional list of job IDs to filter the search
     """
     try:
         # Process CV JSON
         parsed_cv = CVService.process_cv_json(cv_data)
         
         # Prepare match parameters
-        match_params = MatchRequest(top_k=top_k)
+        match_params = MatchRequest(top_k=top_k, job_ids=job_ids)
         
         # Perform matching
         result = await MatchingService.match_cv_to_jobs(parsed_cv, match_params)

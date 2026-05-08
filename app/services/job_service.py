@@ -44,6 +44,66 @@ class JobService:
         except Exception as e:
             logger.error(f"Failed to fetch jobs: {str(e)}")
             return []
+
+    @staticmethod
+    async def fetch_jobs_by_ids(job_ids: List[str]) -> List[JobSchema]:
+        """
+        Fetch specific jobs by their IDs from both DBs.
+        Optimized for incremental sync.
+        """
+        if not job_ids:
+            return []
+            
+        try:
+            # 1. Check cache first
+            cached_jobs = await CacheService.get_jobs_cache()
+            found_jobs = []
+            remaining_ids = set(job_ids)
+            
+            if cached_jobs:
+                for job_data in cached_jobs:
+                    if job_data.get("id") in remaining_ids:
+                        found_jobs.append(JobSchema(**job_data))
+                        remaining_ids.remove(job_data.get("id"))
+            
+            if not remaining_ids:
+                return found_jobs
+                
+            # 2. Fetch missing from PG (New jobs are usually here)
+            session_factory = await get_postgres_session()
+            async with session_factory as session:
+                query = select(JobModel).where(JobModel.id.in_(remaining_ids)).options(joinedload(JobModel.company))
+                result = await session.execute(query)
+                pg_jobs = result.scalars().all()
+                
+                for job in pg_jobs:
+                    found_jobs.append(JobSchema(
+                        id=str(job.id),
+                        title=job.title,
+                        company=job.company.name if job.company else "Unknown Company",
+                        description=job.description,
+                        skills=job.skills or [],
+                        location=job.location,
+                        location_city=job.location,
+                        requirements=[job.requirements] if job.requirements else [],
+                        exp_min=float(job.years_of_experience or 0),
+                        exp_max=float(job.years_of_experience or 99),
+                        salary=job.salary_display,
+                        status=job.status,
+                        url_source=job.url_source
+                    ))
+                    if str(job.id) in remaining_ids:
+                        remaining_ids.remove(str(job.id))
+            
+            # 3. If still missing, check Mongo (Optional/Secondary)
+            if remaining_ids:
+                # Add mongo logic if needed, but usually new jobs are in PG
+                pass
+                
+            return found_jobs
+        except Exception as e:
+            logger.error(f"Failed to fetch jobs by IDs: {str(e)}")
+            return []
     
     @staticmethod
     async def _fetch_jobs_from_mongo() -> List[JobSchema]:

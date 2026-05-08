@@ -56,11 +56,17 @@ class MatchingService:
             search_top_k = match_params.top_k * 15
 
             def search_field(field, vector):
+                # Add ID filter if provided
+                filter_expr = None
+                if match_params.job_ids:
+                    filter_expr = f'job_id in {match_params.job_ids}'
+                    
                 return milvus_client.search(
                     collection_name=settings.MILVUS_COLLECTION,
                     data=[vector],
                     anns_field=field,
                     limit=search_top_k,
+                    filter=filter_expr,  # Apply the ID filter here
                     search_params={"metric_type": "COSINE", "params": {}},
                     output_fields=["job_id", "job_title", "company_name", "location_city", "exp_min", "exp_max", "skills"]
                 )[0]

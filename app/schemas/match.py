@@ -73,3 +73,4 @@ class MatchResponse(BaseModel):
 class MatchRequest(BaseModel):
     """Request parameters for matching"""
     top_k: int = Field(default=5, description="Number of top matches to return", ge=1, le=50)
+    job_ids: Optional[List[str]] = Field(None, description="Specific job IDs to match against")
