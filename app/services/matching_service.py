@@ -37,7 +37,7 @@ class MatchingService:
             job_lookup = {str(j.id): j for j in all_jobs}
 
             # 1. Extract structured fields from CV
-            cv_sections = parse_cv_sections(cv_data.raw_text)
+            cv_sections = await parse_cv_sections(cv_data.raw_text)
             # logger.info(f"CV parsed - Title: '{cv_sections.title}', Location: '{cv_sections.location}', Exp: {cv_sections.years_of_experience}yr")
 
             # 2. Create 3 separate vectors from CV parts corresponding to JD

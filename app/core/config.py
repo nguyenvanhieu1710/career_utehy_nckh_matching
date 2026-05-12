@@ -55,6 +55,10 @@ class Settings:
     # ML Model Settings
     EMBEDDING_MODEL_NAME: str = os.getenv("EMBEDDING_MODEL_NAME")
     HF_TOKEN: str = os.getenv("HF_TOKEN")
+
+    # Gemini LLM Settings
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     
     # File Upload Settings
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR")
