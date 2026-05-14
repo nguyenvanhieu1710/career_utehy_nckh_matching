@@ -59,6 +59,10 @@ class Settings:
     # Gemini LLM Settings
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY")
     GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # Groq LLM Settings
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY")
+    GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")
     
     # File Upload Settings
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR")

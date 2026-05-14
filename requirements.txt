@@ -35,3 +35,4 @@ python-dotenv>=1.0.0
 
 # LLM Integration (CV Parser - LLM Strategy)
 google-genai>=1.0.0
+groq>=0.11.0

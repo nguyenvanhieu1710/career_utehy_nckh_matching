@@ -20,6 +20,7 @@ from app.core.redis_config import get_redis_client
 from app.utils.cv_parser_regex import CVSections
 from app.utils.cv_parser_regex import parse_sections as _regex_parse
 from app.utils import cv_parser_llm
+from app.utils import cv_parser_groq
 from app.utils.cv_text_extractor import extract_cv_text  # Re-export để backward compat
 
 CACHE_PREFIX = "cv_parse:"
@@ -41,15 +42,23 @@ async def parse_cv_sections(raw_text: str) -> CVSections:
         logger.info("CV parse cache HIT")
         return cached
 
-    # === BƯỚC 2: Primary — LLM strategy ===
+    # === BƯỚC 2: Primary — LLM strategy (Groq) ===
+    result = await cv_parser_groq.parse_sections(raw_text)
+
+    if result is not None:
+        await _set_cache(raw_text, result)
+        return result
+
+    # === BƯỚC 3: Fallback — Gemini strategy ===
+    logger.warning("Groq strategy failed → fallback to Gemini strategy")
     result = await cv_parser_llm.parse_sections(raw_text)
 
     if result is not None:
         await _set_cache(raw_text, result)
         return result
 
-    # === BƯỚC 3: Fallback — Regex strategy ===
-    logger.warning("LLM strategy failed → fallback to regex strategy")
+    # === BƯỚC 4: Final Fallback — Regex strategy ===
+    logger.warning("All LLM strategies failed → fallback to regex strategy")
     return _regex_parse(raw_text)
 
 
