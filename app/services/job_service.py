@@ -35,9 +35,10 @@ class JobService:
             
             all_jobs = mongo_jobs + pg_jobs
             
-            # Cache the results
+            # Cache the results in background to not block the response
             if all_jobs:
-                await CacheService.set_jobs_cache(all_jobs)
+                import asyncio
+                asyncio.create_task(CacheService.set_jobs_cache(all_jobs))
             
             return all_jobs
             

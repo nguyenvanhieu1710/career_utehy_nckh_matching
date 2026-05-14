@@ -26,9 +26,9 @@ class RedisManager:
                     password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
                     db=settings.REDIS_DB,
                     decode_responses=True,
-                    socket_timeout=5,
-                    socket_connect_timeout=5,
-                    retry_on_timeout=True
+                    socket_timeout=2,
+                    socket_connect_timeout=2,
+                    retry_on_timeout=False
                 )
                 
                 # Test connection
