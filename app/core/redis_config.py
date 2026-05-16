@@ -26,15 +26,14 @@ class RedisManager:
                     password=settings.REDIS_PASSWORD if settings.REDIS_PASSWORD else None,
                     db=settings.REDIS_DB,
                     decode_responses=True,
-                    socket_timeout=2,
-                    socket_connect_timeout=2,
+                    socket_timeout=1.0,
+                    socket_connect_timeout=1.0,
                     retry_on_timeout=False
                 )
                 
-                # Test connection
-                await self._client.ping()
+                # Connection will be tested on first command with 1s timeout
                 self._is_connected = True
-                logger.info(f"✅ Redis connected: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
+                logger.info(f"✅ Redis client initialized: {settings.REDIS_HOST}:{settings.REDIS_PORT}")
                 
             except Exception as e:
                 logger.error(f"❌ Redis connection failed: {e}")

@@ -32,12 +32,21 @@ class MatchingService:
         start_time = time.time()
         
         try:
-            # 0. Fetch all jobs from cache to enrich data (like salary)
-            all_jobs = await JobService.fetch_all_jobs()
-            job_lookup = {str(j.id): j for j in all_jobs}
+            import asyncio
 
             # 1. Extract structured fields from CV
-            cv_sections = await parse_cv_sections(cv_data.raw_text)
+            # Bypass LLM parsing if CV is already structured (e.g. from Online Profile JSON)
+            if hasattr(cv_data, 'experience') and (cv_data.experience or cv_data.skills):
+                class CVSectionsMock:
+                    title = getattr(cv_data, 'name', '') or ""
+                    tech = ", ".join(cv_data.skills) if cv_data.skills else ""
+                    mota = cv_data.experience or ""
+                    location = ""
+                    years_of_experience = 0.0
+                cv_sections = CVSectionsMock()
+                logger.info("Bypassed LLM parsing because CV data is already structured.")
+            else:
+                cv_sections = await parse_cv_sections(cv_data.raw_text)
             # logger.info(f"CV parsed - Title: '{cv_sections.title}', Location: '{cv_sections.location}', Exp: {cv_sections.years_of_experience}yr")
 
             # 2. Create 3 separate vectors from CV parts corresponding to JD
@@ -45,9 +54,11 @@ class MatchingService:
             tech_text = clean_text(cv_sections.tech or cv_data.raw_text)
             mota_text = clean_text(cv_sections.mota or cv_data.raw_text)
 
-            title_vector = embed_text(title_text).tolist()
-            tech_vector = embed_text(tech_text).tolist()
-            mota_vector = embed_text(mota_text).tolist()
+            # Batch embedding: Pass all 3 texts in a single list to leverage model batching
+            vectors = embed_text([title_text, tech_text, mota_text])
+            title_vector = vectors[0].tolist()
+            tech_vector = vectors[1].tolist()
+            mota_vector = vectors[2].tolist()
 
             # 3. Search Milvus with correct vector for correct field
             milvus_client = get_milvus_client()
@@ -71,9 +82,12 @@ class MatchingService:
                     output_fields=["job_id", "job_title", "company_name", "location_city", "exp_min", "exp_max", "skills"]
                 )[0]
 
-            title_hits = search_field("title_vec", title_vector)
-            tech_hits = search_field("tech_vec", tech_vector)
-            mota_hits = search_field("mota_vec", mota_vector)
+            loop = asyncio.get_event_loop()
+            title_hits, tech_hits, mota_hits = await asyncio.gather(
+                loop.run_in_executor(None, search_field, "title_vec", title_vector),
+                loop.run_in_executor(None, search_field, "tech_vec", tech_vector),
+                loop.run_in_executor(None, search_field, "mota_vec", mota_vector)
+            )
             
             # 3. Merge and Rank Candidates
             candidates = {}
@@ -96,6 +110,11 @@ class MatchingService:
 
             if not candidates:
                 return MatchResponse(success=True, matches=[], total_jobs_analyzed=0, processing_time_ms=0, message="No matching jobs found")
+
+            # 3.5. Fetch job details only for the Top K candidates from DB
+            job_ids_to_fetch = list(candidates.keys())
+            matched_jobs = await JobService.fetch_jobs_by_ids(job_ids_to_fetch)
+            job_lookup = {str(j.id): j for j in matched_jobs}
 
             # 4. Apply Heuristic Scoring
             # Use weights from configuration

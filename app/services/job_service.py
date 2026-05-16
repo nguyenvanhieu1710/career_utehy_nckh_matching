@@ -56,19 +56,11 @@ class JobService:
             return []
             
         try:
-            # 1. Check cache first
-            cached_jobs = await CacheService.get_jobs_cache()
+            # Bypass cache for ID-specific lookups to ensure maximum speed and reliability
+            # Fetching specific IDs from PostgreSQL is extremely fast (<10ms)
+            session_factory = await get_postgres_session()
             found_jobs = []
             remaining_ids = set(job_ids)
-            
-            if cached_jobs:
-                for job_data in cached_jobs:
-                    if job_data.get("id") in remaining_ids:
-                        found_jobs.append(JobSchema(**job_data))
-                        remaining_ids.remove(job_data.get("id"))
-            
-            if not remaining_ids:
-                return found_jobs
                 
             # 2. Fetch missing from PG (New jobs are usually here)
             session_factory = await get_postgres_session()
