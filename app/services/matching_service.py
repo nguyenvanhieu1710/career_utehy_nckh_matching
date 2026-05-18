@@ -35,17 +35,27 @@ class MatchingService:
             import asyncio
 
             # 1. Extract structured fields from CV
-            # Bypass LLM parsing if CV is already structured (e.g. from Online Profile JSON)
-            if hasattr(cv_data, 'experience') and (cv_data.experience or cv_data.skills):
+            # Only bypass LLM parsing if CV is truly structured online profile data (has experience/education details)
+            # PDF CV uploads parsed by cv_service do NOT have experience or education populated in python objects,
+            # meaning they MUST be parsed via LLM to extract rich semantic fields.
+            is_truly_structured = (
+                hasattr(cv_data, 'skills') and cv_data.skills and len(cv_data.skills) > 0
+            ) and (
+                (hasattr(cv_data, 'experience') and cv_data.experience and len(cv_data.experience) > 10) or
+                (hasattr(cv_data, 'education') and cv_data.education and len(cv_data.education) > 10)
+            )
+            
+            if is_truly_structured:
                 class CVSectionsMock:
                     title = getattr(cv_data, 'name', '') or ""
                     tech = ", ".join(cv_data.skills) if cv_data.skills else ""
-                    mota = cv_data.experience or ""
+                    mota = getattr(cv_data, 'experience', "") or ""
                     location = ""
                     years_of_experience = 0.0
                 cv_sections = CVSectionsMock()
-                logger.info("Bypassed LLM parsing because CV data is already structured.")
+                logger.info("Bypassed LLM parsing for truly structured CV data.")
             else:
+                logger.info("Parsing CV via LLM to ensure high quality analysis.")
                 cv_sections = await parse_cv_sections(cv_data.raw_text)
             # logger.info(f"CV parsed - Title: '{cv_sections.title}', Location: '{cv_sections.location}', Exp: {cv_sections.years_of_experience}yr")
 
@@ -151,6 +161,7 @@ class MatchingService:
                 loc_score = MatchingService._get_location_score(user_city, c["location_city"])
                 exp_score = MatchingService._experience_match_score(user_exp, job_exp_min)
                 
+                # Use a balanced scoring weight
                 final_score = (
                     weights["title"] * c["sim_title"] +
                     weights["tech"] * c["sim_tech"] +
@@ -158,6 +169,8 @@ class MatchingService:
                     weights["loc"] * loc_score +
                     weights["exp"] * exp_score
                 )
+                
+                final_score = max(0.0, min(1.0, final_score))
                 
                 if final_score * 100 < 0: 
                     continue
@@ -170,6 +183,18 @@ class MatchingService:
                 job_salary = full_job.salary if full_job else None
                 job_url = full_job.url_source if full_job else None
 
+                explanation = MatchingService._generate_explanation(
+                    score=final_score * 100,
+                    matched_skills=matched_skills,
+                    missing_skills=missing_skills,
+                    user_city=user_city,
+                    job_city=c["location_city"],
+                    loc_score=loc_score,
+                    exp_score=exp_score,
+                    user_exp=user_exp,
+                    job_exp_min=job_exp_min
+                )
+
                 match_results.append(MatchResult(
                     job_id=str(jid),
                     job_title=c["job_title"],
@@ -179,7 +204,7 @@ class MatchingService:
                     missing_skills=missing_skills,
                     skill_improvement_suggestions=suggestions,
                     location=c["location_city"],
-                    match_explanation=f"Match score based on: Title ({c['sim_title']:.2f}), Tech ({c['sim_tech']:.2f}), Location ({loc_score:.2f})",
+                    match_explanation=explanation,
                     salary=job_salary,
                     url_source=job_url,
                     scores={
@@ -230,39 +255,56 @@ class MatchingService:
         return "\n".join(part for part in text_parts if part.strip())
     
     @staticmethod
-    def _generate_explanation(fit_analysis: dict) -> str:
-        """Generate human-readable explanation for match with recommendations"""
-        score = fit_analysis["fit_score"]
-        matched_skills = len(fit_analysis["cv_skills"])
-        missing_skills = len(fit_analysis["missing_skills"])
-        
-        # Match level assessment
-        if score >= 0.8:
-            level = "Excellent"
-            recommendation = "Highly recommended to apply!"
-        elif score >= 0.6:
-            level = "Good"
-            recommendation = "Good fit, consider applying."
-        elif score >= 0.4:
-            level = "Fair"
-            recommendation = "Moderate fit, may need skill improvement."
+    def _generate_explanation(
+        score: float,
+        matched_skills: List[str],
+        missing_skills: List[str],
+        user_city: str,
+        job_city: str,
+        loc_score: float,
+        exp_score: float,
+        user_exp: float,
+        job_exp_min: float
+    ) -> str:
+        """Generate high-quality, personalized, human-readable Vietnamese match explanation"""
+        # Assess match level
+        if score >= 80:
+            level = "Xuất sắc"
+            recommend = "Hồ sơ của bạn cực kỳ khớp với các yêu cầu cốt lõi của công việc này. Đây là cơ hội tuyệt vời để bạn ứng tuyển ngay!"
+        elif score >= 65:
+            level = "Tốt"
+            recommend = "Hồ sơ của bạn đáp ứng rất tốt đa số các tiêu chí tuyển dụng. Bạn nên tự tin nộp hồ sơ."
+        elif score >= 50:
+            level = "Khá"
+            recommend = "Hồ sơ của bạn phù hợp một phần lớn với công việc. Hãy bổ sung thêm một số kỹ năng còn thiếu để tự tin ứng tuyển."
         else:
-            level = "Poor"
-            recommendation = "Low compatibility, significant skill gaps."
+            level = "Trung bình"
+            recommend = "Độ tương thích ở mức trung bình. Bạn nên cân nhắc học hỏi thêm các công nghệ cốt lõi trước khi ứng tuyển."
+
+        explanation = f"Mức độ tương thích: **{level}** ({score:.1f}%).\n\n"
         
-        # Build explanation with actionable insights
-        explanation = f"{level} match ({score*100:.1f}% compatibility). "
+        # Skill match info
+        if matched_skills:
+            skills_shown = matched_skills[:5]
+            explanation += f"• **Điểm mạnh:** Bạn sở hữu các kỹ năng rất phù hợp bao gồm: *{', '.join(skills_shown)}*.\n"
         
-        if matched_skills > 0:
-            explanation += f"You have {matched_skills} relevant skills. "
-        
-        if missing_skills > 0:
-            explanation += f"Consider developing {missing_skills} additional skills to improve your chances. "
+        # Location info
+        if loc_score >= 0.9:
+            explanation += f"• **Địa điểm:** Hoàn toàn thuận lợi, cả bạn và công ty đều ở cùng khu vực hoặc lân cận (*{job_city}*).\n"
+        elif loc_score >= 0.8:
+            explanation += f"• **Địa điểm:** Rất thuận lợi, khoảng cách di chuyển giữa *{user_city}* và *{job_city}* rất tối ưu.\n"
+        elif loc_score <= 0.3:
+            explanation += f"• **Địa điểm:** Khác biệt địa lý lớn (bạn ở *{user_city}*, công ty ở *{job_city}*). Nên cân nhắc hình thức làm việc từ xa (Remote) nếu có.\n"
+
+        # Experience info
+        if exp_score >= 1.0:
+            explanation += f"• **Kinh nghiệm:** Bạn hoàn toàn đáp ứng hoặc vượt mức kinh nghiệm tối thiểu yêu cầu (Bạn có {user_exp} năm, yêu cầu {job_exp_min} năm).\n"
+        elif exp_score >= 0.7:
+            explanation += f"• **Kinh nghiệm:** Bạn hơi thiếu một chút kinh nghiệm nhưng hoàn toàn có thể bù đắp bằng nền tảng kỹ năng sẵn có.\n"
         else:
-            explanation += "You meet all technical requirements! "
-        
-        explanation += recommendation
-        
+            explanation += f"• **Kinh nghiệm:** Yêu cầu tối thiểu là {job_exp_min} năm kinh nghiệm, bạn cần chứng minh thêm năng lực thực tế để bù đắp khoảng trống này.\n"
+
+        explanation += f"\n👉 **Lời khuyên:** {recommend}"
         return explanation
     @staticmethod
     def _experience_match_score(candidate_years, exp_min, under_decay=0.15, min_score=0.2):
@@ -285,27 +327,21 @@ class MatchingService:
         """
         import re
         s = skill.lower().strip()
-        s = re.sub(r'\.', '', s)        # React.js -> reactjs
-        s = re.sub(r'[^\w\s]', '', s)   # Remove remaining special chars
-        s = ' '.join(s.split())          # Collapse extra spaces
+        s = re.sub(r'\.js$', '', s)      # react.js -> react
+        s = re.sub(r'\.net$', 'net', s)  # .net -> net
+        s = re.sub(r'[^\w\s\+#\-]', '', s) # Keep C++, C#, hyphens, remove other special chars
+        s = re.sub(r'\s+', ' ', s).strip()
         return s
 
     @staticmethod
     def _extract_skills_from_tech(tech_text: str) -> set:
-        """Extract skills directly from CV SKILLS section using split approach.
-        More accurate than N-gram for structured skill lists (comma/newline separated).
-        """
-        import re
+        """Extract skills from text by simple split to avoid regex errors"""
         if not tech_text:
             return set()
-        normalized = set()
-        # Split by comma, newline, bullet points, pipes
-        raw_items = re.split(r'[,\n\r•|/]', tech_text)
-        for item in raw_items:
-            item = item.strip()
-            if item and 1 < len(item) <= 50:
-                normalized.add(MatchingService._normalize_skill_name(item))
-        return normalized
+        # Just split by common delimiters
+        import re
+        parts = re.split(r'[,\n\r•|/]', tech_text)
+        return set([MatchingService._normalize_skill_name(p) for p in parts if p.strip()])
 
     @staticmethod
     def _normalize_city(loc: str) -> str:
@@ -357,47 +393,49 @@ class MatchingService:
 
     @staticmethod
     def _generate_skill_suggestions(missing_skills: List[str], job_title: str) -> List[str]:
-        """Generate specific skill improvement suggestions based on missing skills and job type"""
+        """Generate specific Vietnamese skill improvement suggestions based on missing skills and job type"""
         suggestions = []
-        
-        # Job type specific recommendations
         job_title_lower = job_title.lower()
         
         for skill in missing_skills[:5]:  # Limit to top 5 missing skills
-            skill_lower = skill.lower()
+            skill_lower = skill.lower().strip()
             
             # Programming languages
-            if skill_lower in ['python', 'java', 'javascript', 'typescript']:
-                suggestions.append(f"Learn {skill} through online courses (Coursera, Udemy) or practice on HackerRank")
+            if skill_lower in ['python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'php', 'golang', 'ruby', 'rust']:
+                suggestions.append(f"Học ngôn ngữ {skill} thông qua các khóa học trực tuyến (Coursera, Udemy) hoặc luyện giải thuật trên HackerRank/LeetCode.")
             
-            # Frameworks
-            elif skill_lower in ['react', 'vue', 'angular', 'django', 'flask', 'fastapi']:
-                suggestions.append(f"Build projects using {skill} framework and create a portfolio")
+            # Frontend/Backend Frameworks
+            elif skill_lower in ['react', 'vue', 'angular', 'django', 'flask', 'fastapi', 'spring boot', 'laravel', 'nest.js', 'next.js', 'express']:
+                suggestions.append(f"Xây dựng dự án thực tế sử dụng framework {skill} để làm phong phú portfolio của bạn.")
             
             # Cloud & DevOps
-            elif skill_lower in ['aws', 'azure', 'docker', 'kubernetes']:
-                suggestions.append(f"Get {skill} certification and practice with free tier/tutorials")
+            elif skill_lower in ['aws', 'azure', 'docker', 'kubernetes', 'ci/cd', 'git', 'jenkins']:
+                suggestions.append(f"Tìm hiểu công nghệ {skill} qua tài liệu chính hãng (documentation) và thực hành trên môi trường đám mây miễn phí.")
             
             # Databases
-            elif skill_lower in ['mongodb', 'postgresql', 'mysql']:
-                suggestions.append(f"Practice {skill} database design and queries through online labs")
+            elif skill_lower in ['mongodb', 'postgresql', 'mysql', 'redis', 'oracle', 'sql server']:
+                suggestions.append(f"Thực hành thiết kế cơ sở dữ liệu và tối ưu hóa các câu truy vấn phức tạp với {skill}.")
             
-            # General skills
-            elif skill_lower in ['machine learning', 'data science']:
-                suggestions.append(f"Take {skill} courses and work on Kaggle competitions")
+            # AI & Data Science
+            elif skill_lower in ['machine learning', 'data science', 'deep learning', 'nlp', 'pytorch', 'tensorflow', 'scikit-learn']:
+                suggestions.append(f"Tham gia các khóa học chuyên sâu về {skill} và thử sức với các bài toán thực tế trên Kaggle.")
+            
+            # Mobile Development
+            elif skill_lower in ['flutter', 'react native', 'ios', 'android', 'swift', 'kotlin']:
+                suggestions.append(f"Thực hành viết các ứng dụng di động nhỏ bằng {skill} và phát hành lên Google Play hoặc App Store.")
             
             # Default suggestion
             else:
-                suggestions.append(f"Develop {skill} skills through online resources and hands-on projects")
+                suggestions.append(f"Nghiên cứu nâng cao kỹ năng {skill} thông qua các bài viết kỹ thuật, tutorial và thực hành trực tiếp.")
         
         # Add job-specific advice
         if 'backend' in job_title_lower or 'api' in job_title_lower:
-            suggestions.append("Focus on API design, database optimization, and system architecture")
+            suggestions.append("Nâng cao hiểu biết về API design (REST, GraphQL), tối ưu hóa database và các kiến thức hệ thống phân tán.")
         elif 'frontend' in job_title_lower or 'ui' in job_title_lower:
-            suggestions.append("Build responsive web applications and improve UI/UX design skills")
+            suggestions.append("Luyện tập xây dựng giao diện responsive, tương thích đa thiết bị và nâng cao tư duy UI/UX của người dùng.")
         elif 'fullstack' in job_title_lower:
-            suggestions.append("Balance both frontend and backend skills, learn modern development workflows")
+            suggestions.append("Cân bằng cả kỹ năng frontend và backend, đồng thời làm quen với quy trình deploy/DevOps hoàn chỉnh.")
         elif 'data' in job_title_lower:
-            suggestions.append("Practice data analysis, visualization, and statistical modeling")
+            suggestions.append("Tập trung vào phân tích dữ liệu, trực quan hóa thông tin và các phương pháp thống kê nâng cao.")
         
         return suggestions[:6]  # Return max 6 suggestions
