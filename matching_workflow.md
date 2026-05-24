@@ -134,6 +134,34 @@ Matching Service sử dụng các quy tắc heuristics thông minh kết hợp d
   - Tạo lời giải thích chi tiết bằng tiếng Việt cực kỳ tự nhiên, làm nổi bật điểm mạnh về kỹ năng, kinh nghiệm và tính thuận tiện địa lý của ứng viên đối với công việc.
   - Đưa ra lộ trình cải thiện (Skill Improvement Suggestions) bằng tiếng Việt cực kỳ chi tiết cho từng kỹ năng còn thiếu.
 
+### Giải thích công thức chấm điểm của Matching Service
+- Kết quả cuối cùng được xác định bằng cách cộng có trọng số 5 yếu tố:
+  - `S_title`: điểm similarity giữa chức danh CV và title job.
+  - `S_tech`: điểm similarity giữa kỹ năng CV và kỹ năng job.
+  - `S_mota`: điểm similarity giữa mô tả kinh nghiệm CV và mô tả công việc.
+  - `S_loc`: điểm vị trí, đánh giá sự phù hợp về địa lý.
+  - `S_exp`: điểm kinh nghiệm, đánh giá mức độ đủ/thiếu so với yêu cầu của job.
+
+Công thức tổng hợp:
+```math
+\text{Final Score} = W_{\text{title}} \cdot S_{\text{title}} + W_{\text{tech}} \cdot S_{\text{tech}} + W_{\text{mota}} \cdot S_{\text{mota}} + W_{\text{loc}} \cdot S_{\text{loc}} + W_{\text{exp}} \cdot S_{\text{exp}}
+```
+- Mỗi `S_*` nằm trong khoảng `[0,1]`.
+- Mỗi `W_*` là trọng số phản ánh tầm quan trọng.
+- Kết quả `Final Score` được chuẩn hoá về `[0,1]`, rồi nhân 100 để trả về phần trăm tương thích.
+
+Ví dụ:
+- `W_title=0.2`, `W_tech=0.4`, `W_mota=0.2`, `W_loc=0.1`, `W_exp=0.1`
+- `S_title=0.8`, `S_tech=0.6`, `S_mota=0.7`, `S_loc=0.9`, `S_exp=1.0`
+- `Final Score = 0.73` → 73% phù hợp
+
+Tại sao cần công thức này:
+- Milvus chỉ cho biết job nào có nội dung giống về ngữ nghĩa, nhưng chưa đủ để đánh giá tính phù hợp thực tế.
+- Công thức bổ sung điểm vị trí và điểm kinh nghiệm, giúp loại bỏ những job không phù hợp ngay cả khi nội dung giống.
+- Nó giúp kết quả gợi ý vừa chính xác hơn vừa dễ giải thích.
+
+Lưu ý: khi Milvus trả về `distance` với metric COSINE, hệ thống cần chuyển sang similarity bằng `S = 1 - distance` trước khi tính.
+
 ### Giai đoạn 5: Trả về kết quả và Hiển thị (Result Presentation)
 - Dữ liệu Top K công việc phù hợp nhất sau khi xếp hạng được Matching Service đóng gói và trả về Backend dưới dạng JSON chuẩn.
 - Backend chuyển tiếp về Frontend để hiển thị cho ứng viên giao diện trực quan sinh động bao gồm:
