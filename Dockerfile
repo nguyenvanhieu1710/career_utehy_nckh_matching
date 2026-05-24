@@ -8,6 +8,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Install system dependencies (including Tesseract and Poppler)
 RUN apt-get update && apt-get install -y \
+    curl \
     gcc \
     g++ \
     tesseract-ocr \
@@ -22,6 +23,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
+
+# Create unprivileged user and ensure app directories are writable
+RUN groupadd -r appuser && useradd -r -g appuser appuser \
+    && mkdir -p /home/appuser/.cache \
+    && chown -R appuser:appuser /app /home/appuser
+USER appuser
+ENV HOME=/home/appuser
 
 # Expose port
 EXPOSE 8002

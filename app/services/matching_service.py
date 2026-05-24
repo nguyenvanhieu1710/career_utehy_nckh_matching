@@ -182,6 +182,7 @@ class MatchingService:
                 full_job = job_lookup.get(str(jid))
                 job_salary = full_job.salary if full_job else None
                 job_url = full_job.url_source if full_job else None
+                job_image = full_job.image_url if full_job else None
 
                 explanation = MatchingService._generate_explanation(
                     score=final_score * 100,
@@ -207,6 +208,7 @@ class MatchingService:
                     match_explanation=explanation,
                     salary=job_salary,
                     url_source=job_url,
+                    image_url=job_image,
                     scores={
                         "sim_title": round(c["sim_title"] * 100),
                         "sim_tech": round(c["sim_tech"] * 100),
@@ -296,13 +298,53 @@ class MatchingService:
         elif loc_score <= 0.3:
             explanation += f"• **Địa điểm:** Khác biệt địa lý lớn (bạn ở *{user_city}*, công ty ở *{job_city}*). Nên cân nhắc hình thức làm việc từ xa (Remote) nếu có.\n"
 
+        def _format_years(years):
+            try:
+                years = float(years)
+            except Exception:
+                return None
+            if years <= 0:
+                return None
+            if years < 1:
+                months = round(years * 12)
+                return f"{months} tháng"
+            if years.is_integer():
+                return f"{int(years)} năm"
+            return f"{years:.1f} năm"
+
+        def _format_exp_value(value):
+            if value is None:
+                return None
+            try:
+                value = float(value)
+            except Exception:
+                return str(value)
+            return "không yêu cầu" if value == 0 else _format_years(value)
+
+        user_exp_label = _format_exp_value(user_exp) or f"{user_exp} năm"
+        job_exp_min_label = _format_exp_value(job_exp_min) or f"{job_exp_min} năm"
+
+        def _build_experience_phrase(user_label, job_label):
+            if user_label == "không yêu cầu" and job_label == "không yêu cầu":
+                return "Công việc này không yêu cầu kinh nghiệm."
+
+            user_phrase = (
+                "Bạn chưa có kinh nghiệm" if user_label == "không yêu cầu" else f"Bạn có {user_label}"
+            )
+            job_phrase = (
+                "công việc không yêu cầu kinh nghiệm" if job_label == "không yêu cầu" else f"công việc yêu cầu {job_label}"
+            )
+            return f"{user_phrase}, {job_phrase}."
+
         # Experience info
         if exp_score >= 1.0:
-            explanation += f"• **Kinh nghiệm:** Bạn hoàn toàn đáp ứng hoặc vượt mức kinh nghiệm tối thiểu yêu cầu (Bạn có {user_exp} năm, yêu cầu {job_exp_min} năm).\n"
+            experience_phrase = _build_experience_phrase(user_exp_label, job_exp_min_label)
+            explanation += f"• **Kinh nghiệm:** Bạn hoàn toàn đáp ứng hoặc vượt mức kinh nghiệm tối thiểu yêu cầu ({experience_phrase})\n"
         elif exp_score >= 0.7:
             explanation += f"• **Kinh nghiệm:** Bạn hơi thiếu một chút kinh nghiệm nhưng hoàn toàn có thể bù đắp bằng nền tảng kỹ năng sẵn có.\n"
         else:
-            explanation += f"• **Kinh nghiệm:** Yêu cầu tối thiểu là {job_exp_min} năm kinh nghiệm, bạn cần chứng minh thêm năng lực thực tế để bù đắp khoảng trống này.\n"
+            job_requirement = "không yêu cầu kinh nghiệm" if job_exp_min_label == "không yêu cầu" else f"{job_exp_min_label}"
+            explanation += f"• **Kinh nghiệm:** Yêu cầu tối thiểu là {job_requirement} kinh nghiệm, bạn cần chứng minh thêm năng lực thực tế để bù đắp khoảng trống này.\n"
 
         explanation += f"\n👉 **Lời khuyên:** {recommend}"
         return explanation

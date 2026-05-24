@@ -16,6 +16,7 @@ class MatchResult(BaseModel):
     location: Optional[str] = Field(None, description="Job location")
     salary: Optional[str] = Field(None, description="Salary range")
     url_source: Optional[str] = Field(None, description="Link to original job post")
+    image_url: Optional[str] = Field(None, description="Image or logo URL for the job/company")
     scores: dict = Field(default_factory=dict, description="Detailed sub-scores for the match")
     
     class Config:

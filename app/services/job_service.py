@@ -2,7 +2,7 @@
 
 from app.core.config import settings
 from typing import List, Optional
-from app.core.database import get_database, get_postgres_session
+from app.core.database import get_postgres_session
 from app.schemas.job import JobSchema
 from app.models.job import JobModel, CompanyModel
 from sqlalchemy.future import select
@@ -28,12 +28,11 @@ class JobService:
                 # Convert cached data back to JobSchema objects
                 return [JobSchema(**job_data) for job_data in cached_jobs]
             
-            # Cache miss - fetch from both DBs
-            logger.info("Cache miss - fetching jobs from MongoDB & PostgreSQL")
-            mongo_jobs = await JobService._fetch_jobs_from_mongo()
+            # Cache miss - fetch from PostgreSQL only (MongoDB disabled)
+            logger.info("Cache miss - fetching jobs from PostgreSQL only")
             pg_jobs = await JobService._fetch_jobs_from_postgres()
             
-            all_jobs = mongo_jobs + pg_jobs
+            all_jobs = pg_jobs
             
             # Cache the results in background to not block the response
             if all_jobs:
@@ -83,15 +82,61 @@ class JobService:
                         exp_max=float(job.years_of_experience or 99),
                         salary=job.salary_display,
                         status=job.status,
-                        url_source=job.url_source
+                        url_source=job.url_source,
+                        image_url=job.company.logo_url if job.company else None
                     ))
                     if str(job.id) in remaining_ids:
                         remaining_ids.remove(str(job.id))
             
             # 3. If still missing, check Mongo (Optional/Secondary)
             if remaining_ids:
-                # Add mongo logic if needed, but usually new jobs are in PG
-                pass
+                # Fallback: try to retrieve job metadata from Milvus (if jobs were synced there)
+                try:
+                    from app.core.database import get_milvus_client
+                    from app.core.config import settings
+
+                    milvus_client = get_milvus_client()
+                    if milvus_client:
+                        for rid in list(remaining_ids):
+                            try:
+                                res = milvus_client.query(
+                                    collection_name=settings.MILVUS_COLLECTION,
+                                    filter=f"job_id == '{rid}'",
+                                    output_fields=["job_id", "job_title", "company_name", "location_city", "skills", "exp_min", "title_vec", "tech_vec", "mota_vec"]
+                                )
+                                if res:
+                                    row = res[0]
+                                    skills_field = row.get("skills", "")
+                                    if isinstance(skills_field, str):
+                                        skills_list = [s.strip() for s in skills_field.split(",") if s.strip()]
+                                    else:
+                                        skills_list = skills_field or []
+
+                                    found_jobs.append(JobSchema(
+                                        id=str(row.get("job_id")),
+                                        title=row.get("job_title", ""),
+                                        company=row.get("company_name", "Unknown Company"),
+                                        description=None,
+                                        skills=skills_list,
+                                        location=row.get("location_city"),
+                                        location_city=row.get("location_city"),
+                                        requirements=[],
+                                        exp_min=float(row.get("exp_min") or 0),
+                                        exp_max=99.0,
+                                        salary=None,
+                                        status="OPEN",
+                                        url_source=None,
+                                        image_url=None,
+                                        title_vec=row.get("title_vec"),
+                                        tech_vec=row.get("tech_vec"),
+                                        mota_vec=row.get("mota_vec")
+                                    ))
+                                    if str(row.get("job_id")) in remaining_ids:
+                                        remaining_ids.remove(str(row.get("job_id")))
+                            except Exception:
+                                continue
+                except Exception as e:
+                    logger.warning(f"Milvus fallback failed: {e}")
                 
             return found_jobs
         except Exception as e:
@@ -103,69 +148,8 @@ class JobService:
         """
         Fetch jobs from MongoDB (internal method)
         """
-        try:
-            db = get_database()
-            companies_collection = db[settings.MONGODB_COLLECTION_COMPANIES]
-            
-            # Get all companies with jobs
-            companies = await companies_collection.find({}).to_list(length=None)
-            
-            job_list = []
-            
-            for company in companies:
-                company_name = company.get("name", "Unknown Company")
-                jobs = company.get("jobs", [])
-                
-                # 4. Apply Heuristic Scoring
-                # Use weights from configuration
-                weights = {
-                    "title": settings.WEIGHT_TITLE,
-                    "tech": settings.WEIGHT_TECH,
-                    "mota": settings.WEIGHT_MOTA,
-                    "loc": settings.WEIGHT_LOCATION,
-                    "exp": settings.WEIGHT_EXPERIENCE
-                }
-                
-                for job in jobs:
-                    # Only include OPEN jobs
-                    if job.get("status") != "OPEN":
-                        continue
-                    
-                    # Parse skills and requirements
-                    skills = job.get("skills", [])
-                    if isinstance(skills, str):
-                        skills = [s.strip() for s in skills.split(",") if s.strip()]
-                    elif not isinstance(skills, list):
-                        skills = []
-                    
-                    requirements = job.get("requirements", [])
-                    if isinstance(requirements, str):
-                        requirements = [r.strip() for r in requirements.split(",") if r.strip()]
-                    elif not isinstance(requirements, list):
-                        requirements = []
-                    
-                    job_schema = JobSchema(
-                        id=job.get("id", ""),
-                        title=job.get("title", ""),
-                        company=company_name,
-                        description=job.get("description", ""),
-                        skills=skills,
-                        location=job.get("location", ""),
-                        requirements=requirements,
-                        salary=job.get("salary", ""),
-                        status=job.get("status", ""),
-                        url_source=job.get("url_source", ""),
-                        embedding=job.get("embedding")  # Include pre-computed embedding
-                    )
-                    
-                    job_list.append(job_schema)
-            
-            logger.info(f"Fetched {len(job_list)} OPEN jobs from MongoDB")
-            return job_list
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch jobs from MongoDB: {str(e)}")
-            return []
+        logger.warning("_fetch_jobs_from_mongo() called, but MongoDB is disabled. Returning empty job list.")
+        return []
 
     @staticmethod
     async def _fetch_jobs_from_postgres() -> List[JobSchema]:
@@ -194,7 +178,8 @@ class JobService:
                         exp_max=float(job.years_of_experience or 99),
                         salary=job.salary_display,
                         status=job.status,
-                        url_source=job.url_source
+                        url_source=job.url_source,
+                        image_url=job.company.logo_url if job.company else None
                     ))
                 
                 logger.info(f"Fetched {len(job_list)} OPEN jobs from PostgreSQL")

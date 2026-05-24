@@ -3,7 +3,8 @@
 import numpy as np
 from typing import List, Dict, Optional
 from app.services.ml.embeddings import embed_text, get_model
-from app.core.database import get_database
+# MongoDB support is disabled for this deployment
+# from app.core.database import get_database
 from app.core.redis_config import CacheService
 import logging
 import json
@@ -222,23 +223,43 @@ class EmbeddingService:
     async def get_job_embedding(job_id: str) -> Optional[List[float]]:
         """Get pre-computed embedding for a specific job"""
         try:
-            db = get_database()
-            companies_collection = db["companies"]
-            
-            # Find job with embedding
-            company = await companies_collection.find_one(
-                {"jobs.id": job_id},
-                {"jobs.$": 1}
-            )
-            
-            if company and "jobs" in company and len(company["jobs"]) > 0:
-                job = company["jobs"][0]
-                return job.get("embedding")
-            
-            return None
-            
+            from app.core.config import settings
+            from app.core.database import get_milvus_client
+
+            milvus_client = get_milvus_client()
+            if not milvus_client:
+                logger.warning("Milvus client not available when fetching job embedding")
+                return None
+
+            # Query Milvus for the job by job_id
+            try:
+                results = milvus_client.query(
+                    collection_name=settings.MILVUS_COLLECTION,
+                    filter=f"job_id == '{job_id}'",
+                    output_fields=["title_vec", "tech_vec", "mota_vec"]
+                )
+            except Exception as me:
+                logger.warning(f"Milvus query failed for job {job_id}: {me}")
+                return None
+
+            if not results:
+                return None
+
+            row = results[0]
+            title_vec = row.get("title_vec") or []
+            tech_vec = row.get("tech_vec") or []
+            mota_vec = row.get("mota_vec") or []
+
+            # Combine vectors into a single legacy-style embedding if needed
+            combined = []
+            combined.extend(title_vec)
+            combined.extend(tech_vec)
+            combined.extend(mota_vec)
+
+            return combined if combined else None
+
         except Exception as e:
-            logger.error(f"Failed to get job embedding: {e}")
+            logger.error(f"Failed to get job embedding from Milvus: {e}")
             return None
     
     @staticmethod

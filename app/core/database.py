@@ -27,18 +27,9 @@ milvusdb = MilvusDB()
 postgresdb = PostgresDB()
 
 async def connect_to_mongo():
-    """Create MongoDB connection"""
-    try:
-        mongodb.client = AsyncIOMotorClient(settings.MONGODB_URL)
-        mongodb.database = mongodb.client[settings.MONGODB_DB_NAME]
-        
-        # Test connection
-        await mongodb.client.admin.command('ping')
-        logger.info(f"Connected to MongoDB: {settings.MONGODB_DB_NAME}")
-        
-    except Exception as e:
-        logger.error(f"Failed to connect to MongoDB: {str(e)}")
-        raise
+    """MongoDB is disabled for this deployment."""
+    logger.warning("MongoDB connection skipped because the matching service now uses PostgreSQL only.")
+    return
 
 async def connect_to_postgres():
     """Create PostgreSQL connection"""
@@ -64,10 +55,9 @@ def connect_to_milvus():
         # Don't raise here, allow app to run without Milvus if needed (though matching will fail)
 
 async def close_mongo_connection():
-    """Close MongoDB connection"""
-    if mongodb.client:
-        mongodb.client.close()
-        logger.info("Disconnected from MongoDB")
+    """MongoDB cleanup is disabled for this deployment."""
+    logger.warning("MongoDB disconnection skipped because MongoDB is disabled.")
+    return
 
 async def close_postgres_connection():
     """Close PostgreSQL connection"""
@@ -76,8 +66,9 @@ async def close_postgres_connection():
         logger.info("Disconnected from PostgreSQL")
 
 def get_database():
-    """Get MongoDB instance"""
-    return mongodb.database
+    """MongoDB access is disabled. Return None to prevent accidental MongoDB use."""
+    logger.warning("get_database() called, but MongoDB is disabled. Returning None.")
+    return None
 
 async def get_postgres_session():
     """Get PostgreSQL session factory"""

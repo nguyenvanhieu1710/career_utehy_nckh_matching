@@ -18,6 +18,7 @@ class JobSchema(BaseModel):
     salary: Optional[str] = Field(None, description="Salary range")
     status: Optional[str] = Field(None, description="Job status")
     url_source: Optional[str] = Field(None, description="Link to original job post")
+    image_url: Optional[str] = Field(None, description="Image or logo URL for the job/company")
     embedding: Optional[List[float]] = Field(None, description="Legacy embedding")
     title_vec: Optional[List[float]] = Field(None, description="Title embedding")
     tech_vec: Optional[List[float]] = Field(None, description="Tech stack embedding")

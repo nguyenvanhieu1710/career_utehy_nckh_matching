@@ -16,7 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.core.database import connect_to_mongo, close_mongo_connection
+# MongoDB is disabled in this deployment to save resources
+# from app.core.database import connect_to_mongo, close_mongo_connection
 from app.core.redis_config import redis_manager
 import logging
 
@@ -32,13 +33,8 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting Career UTEHY NCKH - CV Job Matching Service...")
     
-    # Connect to MongoDB
-    try:
-        await connect_to_mongo()
-        logger.info("Database connection established")
-    except Exception as e:
-        logger.error(f"Failed to connect to database: {str(e)}")
-        # Continue without database for now
+    # Connect to MongoDB (disabled)
+    logger.warning("MongoDB startup skipped because the matching service is configured to use PostgreSQL only.")
     
     # Connect to PostgreSQL
     try:
@@ -83,7 +79,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down...")
-    await close_mongo_connection()
+    logger.warning("MongoDB shutdown skipped because it was disabled at startup.")
     await redis_manager.close()
 
 # Create FastAPI app
