@@ -60,9 +60,22 @@ class MatchingService:
             # logger.info(f"CV parsed - Title: '{cv_sections.title}', Location: '{cv_sections.location}', Exp: {cv_sections.years_of_experience}yr")
 
             # 2. Create 3 separate vectors from CV parts corresponding to JD
-            title_text = clean_text(cv_sections.title or cv_data.raw_text[:200])
+            # Title fallback priority: title → mota (infer role from experience) → tech (infer role from skills)
+            # Avoid embedding raw_text[:200] which is typically just contact info (phone, email, address)
+            title_text = clean_text(
+                cv_sections.title
+                or cv_sections.mota
+                or cv_sections.tech
+                or cv_data.raw_text
+            )
             tech_text = clean_text(cv_sections.tech or cv_data.raw_text)
-            mota_text = clean_text(cv_sections.mota or cv_data.raw_text)
+            # Mota fallback: combine mota + tech for richer semantic context when mota is sparse
+            mota_text = clean_text(
+                cv_sections.mota
+                or (cv_sections.tech + " " + cv_data.raw_text[:500] if cv_sections.tech else cv_data.raw_text)
+            )
+            logger.info(f"CV vectors — title_src={'title' if cv_sections.title else 'mota' if cv_sections.mota else 'tech'}, "
+                        f"mota_len={len(cv_sections.mota)}, tech_len={len(cv_sections.tech)}")
 
             # Batch embedding: Pass all 3 texts in a single list to leverage model batching
             vectors = embed_text([title_text, tech_text, mota_text])
@@ -121,13 +134,7 @@ class MatchingService:
             if not candidates:
                 return MatchResponse(success=True, matches=[], total_jobs_analyzed=0, processing_time_ms=0, message="No matching jobs found")
 
-            # 3.5. Fetch job details only for the Top K candidates from DB
-            job_ids_to_fetch = list(candidates.keys())
-            matched_jobs = await JobService.fetch_jobs_by_ids(job_ids_to_fetch)
-            job_lookup = {str(j.id): j for j in matched_jobs}
-
-            # 4. Apply Heuristic Scoring
-            # Use weights from configuration
+            # 4. Weights — khai báo sớm để dùng cho cả pre-sort và heuristic scoring
             weights = {
                 "title": settings.WEIGHT_TITLE,
                 "tech": settings.WEIGHT_TECH,
@@ -135,7 +142,25 @@ class MatchingService:
                 "loc": settings.WEIGHT_LOCATION,
                 "exp": settings.WEIGHT_EXPERIENCE
             }
-            
+
+            # 3.5. Fetch job details only for candidates from DB
+            # Pre-sort by semantic scores to limit DB fetch to top candidates only,
+            # avoiding fetching all 400+ jobs when we only need top_k results.
+            PRE_FETCH_LIMIT = match_params.top_k * 5  # fetch 5x top_k, enough buffer for re-ranking
+            pre_sorted_ids = sorted(
+                candidates.keys(),
+                key=lambda jid: (
+                    candidates[jid]["sim_tech"] * weights["tech"] +
+                    candidates[jid]["sim_mota"] * weights["mota"] +
+                    candidates[jid]["sim_title"] * weights["title"]
+                ),
+                reverse=True
+            )[:PRE_FETCH_LIMIT]
+
+            job_ids_to_fetch = pre_sorted_ids
+            matched_jobs = await JobService.fetch_jobs_by_ids(job_ids_to_fetch)
+            job_lookup = {str(j.id): j for j in matched_jobs}
+
             match_results = []
             user_city = cv_sections.location
             user_exp = cv_sections.years_of_experience
@@ -160,14 +185,31 @@ class MatchingService:
                 
                 loc_score = MatchingService._get_location_score(user_city, c["location_city"])
                 exp_score = MatchingService._experience_match_score(user_exp, job_exp_min)
-                
-                # Use a balanced scoring weight
+
+                # Dynamically redistribute weights when location data is missing.
+                # If user_city is unknown, the location weight is redistributed to tech
+                # to avoid injecting a constant 0.5 score that flattens all results.
+                has_location = bool(MatchingService._normalize_city(user_city))
+                if has_location:
+                    w_title = weights["title"]
+                    w_tech  = weights["tech"]
+                    w_mota  = weights["mota"]
+                    w_loc   = weights["loc"]
+                    w_exp   = weights["exp"]
+                else:
+                    # Redistribute loc weight: 70% → tech, 30% → mota
+                    w_loc   = 0.0
+                    w_tech  = weights["tech"]  + weights["loc"] * 0.7
+                    w_mota  = weights["mota"]  + weights["loc"] * 0.3
+                    w_title = weights["title"]
+                    w_exp   = weights["exp"]
+
                 final_score = (
-                    weights["title"] * c["sim_title"] +
-                    weights["tech"] * c["sim_tech"] +
-                    weights["mota"] * c["sim_mota"] +
-                    weights["loc"] * loc_score +
-                    weights["exp"] * exp_score
+                    w_title * c["sim_title"] +
+                    w_tech  * c["sim_tech"] +
+                    w_mota  * c["sim_mota"] +
+                    w_loc   * loc_score +
+                    w_exp   * exp_score
                 )
                 
                 final_score = max(0.0, min(1.0, final_score))
